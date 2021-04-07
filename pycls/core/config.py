@@ -30,7 +30,7 @@ _C.MODEL.TYPE = ""
 _C.MODEL.DEPTH = 0
 
 # Number of classes
-_C.MODEL.NUM_CLASSES = 10
+_C.MODEL.NUM_CLASSES = 1
 
 # Loss function (see pycls/models/loss.py for options)
 _C.MODEL.LOSS_FUN = "cross_entropy"
@@ -93,6 +93,14 @@ _C.ANYNET.SE_ON = False
 
 # SE ratio
 _C.ANYNET.SE_R = 0.25
+
+
+# ---------------------------------- AnyCenter options ---------------------------------- #
+_C.ANYCENTER = CfgNode()
+
+_C.ANYCENTER.HM_HEAD = 1
+_C.ANYCENTER.WH_HEAD = 2
+_C.ANYCENTER.REG_HEAD = 2
 
 
 # ---------------------------------- RegNet options ---------------------------------- #
