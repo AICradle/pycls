@@ -211,7 +211,7 @@ class AnyCenter(nn.Module):
         for i, (d, w, s, b, g) in enumerate(zip(*[p[k] for k in keys])):
             params = {"bot_mul": b, "group_w": g, "se_r": p["se_r"]}
             stage = AnyStage(prev_w, w, s, d, block_fun, params)
-            self.add_module("s{}".format(i + 1), stage)
+            self.add_module("stage{}".format(i + 1), stage)
             prev_w = w
 
         channels = [prev_w, 64, 128, 256]
@@ -222,8 +222,15 @@ class AnyCenter(nn.Module):
         self.apply(init_weights)
 
     def forward(self, x):
-        for module in self.children():
-            x = module(x)
+        stages = [module for name, module in self.named_children() if "stage" in name]
+        y = []
+        for stage in stages:
+            x = stage(x)
+            y.append(x)
+
+        x = self.dla_up(y)
+        x = self.head(x)
+
         return x
 
     @staticmethod
