@@ -58,12 +58,12 @@ class IDAUp(nn.Module):
             setattr(self, 'up_' + str(i), up)
             setattr(self, 'node_' + str(i), node)
 
-    def forward(self, layers, startp, endp):
-        for i in range(startp + 1, endp):
-            upsample = getattr(self, 'up_' + str(i - startp))
-            project = getattr(self, 'proj_' + str(i - startp))
+    def forward(self, layers):
+        for i in range(0, len(layers)):
+            upsample = getattr(self, 'up_' + str(i - 0))
+            project = getattr(self, 'proj_' + str(i - 0))
             layers[i] = upsample(project(layers[i]))
-            node = getattr(self, 'node_' + str(i - startp))
+            node = getattr(self, 'node_' + str(i - 0))
             layers[i] = node(layers[i] + layers[i - 1])
 
 
