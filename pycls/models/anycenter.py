@@ -6,7 +6,7 @@ from pycls.models.blocks import (
     init_weights,
 )
 from pycls.models.anynet import get_block_fun, get_stem_fun, AnyStage
-from .DCNv2.dcn_v2 import DCN
+# from .DCNv2.dcn_v2 import DCN
 import torch.nn as nn
 import torch
 import numpy as np
@@ -33,19 +33,19 @@ def fill_up_weights(up):
         w[c, 0, :, :] = w[0, 0, :, :]
 
 
-class DeformConv(nn.Module):
-    def __init__(self, chi, cho):
-        super(DeformConv, self).__init__()
-        self.actf = nn.Sequential(
-            nn.BatchNorm2d(cho, momentum=0.1),
-            nn.ReLU(inplace=True)
-        )
-        self.conv = DCN(chi, cho, kernel_size=(3, 3), stride=1, padding=1, dilation=1, deformable_groups=1)
-
-    def forward(self, x):
-        x = self.conv(x)
-        x = self.actf(x)
-        return x
+# class DeformConv(nn.Module):
+#     def __init__(self, chi, cho):
+#         super(DeformConv, self).__init__()
+#         self.actf = nn.Sequential(
+#             nn.BatchNorm2d(cho, momentum=0.1),
+#             nn.ReLU(inplace=True)
+#         )
+#         self.conv = DCN(chi, cho, kernel_size=(3, 3), stride=1, padding=1, dilation=1, deformable_groups=1)
+#
+#     def forward(self, x):
+#         x = self.conv(x)
+#         x = self.actf(x)
+#         return x
 
 
 class IDAUp(nn.Module):
@@ -169,7 +169,7 @@ class CenterHead(nn.Module):
         y = {}
 
         for head, head_module in self.head_modules.items():
-            y[head] = head_module(x[-1])
+            y[head] = head_module(x)
 
         return y
 
@@ -208,23 +208,25 @@ class AnyCenter(nn.Module):
         self.stem = stem_fun(3, p["stem_w"])
         prev_w = p["stem_w"]
         keys = ["depths", "widths", "strides", "bot_muls", "group_ws"]
+        channels = []
         for i, (d, w, s, b, g) in enumerate(zip(*[p[k] for k in keys])):
             params = {"bot_mul": b, "group_w": g, "se_r": p["se_r"]}
             stage = AnyStage(prev_w, w, s, d, block_fun, params)
+            channels.append(w)
             self.add_module("stage{}".format(i + 1), stage)
             prev_w = w
 
-        channels = [prev_w, 64, 128, 256]
+
         scales = [2 ** i for i in range(len(channels))]
         self.dla_up = DLAUp(channels, scales)
 
-        self.head = CenterHead(prev_w, p["heads"])
+        self.head = CenterHead(channels[-1], p["heads"])
         self.apply(init_weights)
 
     def forward(self, x):
         stages = [module for name, module in self.named_children() if "stage" in name]
         y = []
-        
+
         x = self.stem(x)
         for stage in stages:
             x = stage(x)
