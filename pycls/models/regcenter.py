@@ -8,8 +8,8 @@
 """RegNet models."""
 
 import numpy as np
-from pycls.core.config import cfg
-from pycls.models.anycenter import AnyCenter
+from ..core.config import cfg
+from .anycenter import AnyCenter
 
 def adjust_block_compatibility(ws, bs, gs):
     """Adjusts the compatibility of widths, bottlenecks, and groups."""

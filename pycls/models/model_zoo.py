@@ -26,6 +26,7 @@ _DOWNLOAD_CACHE = "/tmp/pycls-download-cache"
 
 # Predefined model config files
 _MODEL_ZOO_CONFIGS = {
+    "RegCenter-3.2GF": "dds_baselines/regcenter/RegCenter-3.GF_dds_1gpu.yaml",
     "RegNetX-200MF": "dds_baselines/regnetx/RegNetX-200MF_dds_8gpu.yaml",
     "RegNetX-400MF": "dds_baselines/regnetx/RegNetX-400MF_dds_8gpu.yaml",
     "RegNetX-600MF": "dds_baselines/regnetx/RegNetX-600MF_dds_8gpu.yaml",
@@ -151,6 +152,25 @@ def build_model(name, pretrained=False, cfg_list=()):
         cp.load_checkpoint(weights_file, model)
     return model
 
+
+def build_regcenter_model(config_path, pretrained=False, cfg_list=()):
+    """Constructs a predefined model (note: loads global config as well)."""
+    # Load the config
+    reset_cfg()
+    load_cfg(config_path)
+    cfg.merge_from_list(cfg_list)
+    # Construct model
+    model = builders.build_model()
+    # Load pretrained weights
+    # if pretrained:
+    #     weights_file = get_weights_file(name)
+    #     cp.load_checkpoint(weights_file, model)
+    return model
+
+
+def regcenter(config_path, pretrained=False, cfg_list=()):
+    """Constructs a RegNetX model (note: loads global config as well)."""
+    return build_regcenter_model(config_path, pretrained, cfg_list)
 
 def regnetx(name, pretrained=False, cfg_list=()):
     """Constructs a RegNetX model (note: loads global config as well)."""

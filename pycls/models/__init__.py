@@ -7,4 +7,4 @@
 
 """Expose model zoo constructors."""
 
-from pycls.models.model_zoo import effnet, regnetx, regnety, resnet, resnext, regcenter
+from .model_zoo import regcenter
