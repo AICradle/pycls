@@ -224,6 +224,8 @@ class AnyCenter(nn.Module):
     def forward(self, x):
         stages = [module for name, module in self.named_children() if "stage" in name]
         y = []
+        
+        x = self.stem(x)
         for stage in stages:
             x = stage(x)
             y.append(x)
