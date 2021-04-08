@@ -134,7 +134,7 @@ class CenterHead(nn.Module):
         y = {}
 
         for head, head_module in self.head_modules.items():
-            y[head] = head_module(x)
+            y[head] = head_module(x[-1])
 
         return y
 
