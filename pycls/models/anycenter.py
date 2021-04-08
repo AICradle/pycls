@@ -61,13 +61,15 @@ class IDAUp(nn.Module):
     def forward(self, layers, startp=0, endp=None):
         if not endp:
             endp = len(layers)
-        
+
         for i in range(startp + 1, endp):
             upsample = getattr(self, 'up_' + str(i - startp))
             project = getattr(self, 'proj_' + str(i - startp))
             layers[i] = upsample(project(layers[i]))
             node = getattr(self, 'node_' + str(i - startp))
             layers[i] = node(layers[i] + layers[i - 1])
+
+        return layers
 
 
 class DLAUp(nn.Module):
@@ -91,7 +93,7 @@ class DLAUp(nn.Module):
         out = [layers[-1]]  # start with 32
         for i in range(len(layers) - self.startp - 1):
             ida = getattr(self, 'ida_{}'.format(i))
-            ida(layers, len(layers) - i - 2, len(layers))
+            layers = ida(layers, len(layers) - i - 2, len(layers))
             out.insert(0, layers[-1])
         return out
 
@@ -127,7 +129,6 @@ class CenterHead(nn.Module):
         self.head_modules = nn.ModuleDict()
         for head, head_classes in heads.items():
             self.head_modules.add_module(head, Head(w_in, 256, head_classes))
-
 
     def forward(self, x):
         y = {}
