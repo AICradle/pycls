@@ -11,7 +11,7 @@ import argparse
 import os
 import sys
 
-from pycls.core.io import cache_url, pathmgr
+from .io import cache_url, pathmgr
 from yacs.config import CfgNode
 
 
