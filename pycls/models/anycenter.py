@@ -12,6 +12,9 @@ import torch
 import numpy as np
 import math
 
+from collections import namedtuple
+NT = namedtuple('output', ['hm', 'wh', 'reg'])
+
 
 class Identity(nn.Module):
     def __init__(self):
@@ -168,10 +171,12 @@ class CenterHead(nn.Module):
     def forward(self, x):
         y = {}
 
+
         for head, head_module in self.head_modules.items():
             y[head] = head_module(x)
 
-        return y
+        nt = NT(y["hm"], y["wh"], y["reg"])
+        return nt
 
     @staticmethod
     def complexity(cx, w_in, heads):
