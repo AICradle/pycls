@@ -216,10 +216,7 @@ class AnyCenter(nn.Module):
 
         channels = [prev_w, 64, 128, 256]
         scales = [2 ** i for i in range(len(channels))]
-        self.dla_up = DLAUp(0, channels, scales)
-
-        self.ida_up = IDAUp(prev_w, channels,
-                            [2 ** i for i in range(len(channels))])
+        self.dla_up = DLAUp(channels, scales)
 
         self.head = CenterHead(prev_w, p["heads"])
         self.apply(init_weights)
