@@ -8,8 +8,17 @@ from pycls.models.blocks import (
 from pycls.models.anynet import get_block_fun, get_stem_fun, AnyStage
 from .DCNv2.dcn_v2 import DCN
 import torch.nn as nn
+import torch
 import numpy as np
 import math
+
+
+class Identity(nn.Module):
+    def __init__(self):
+        super(Identity, self).__init__()
+
+    def forward(self, x):
+        return x
 
 
 def fill_up_weights(up):
@@ -40,42 +49,67 @@ class DeformConv(nn.Module):
 
 
 class IDAUp(nn.Module):
-
-    def __init__(self, o, channels, up_f):
+    def __init__(self, node_kernel, out_dim, channels, up_factors):
         super(IDAUp, self).__init__()
-        for i in range(1, len(channels)):
-            c = channels[i]
-            f = int(up_f[i])
-            proj = DeformConv(c, o)
-            node = DeformConv(o, o)
-
-            up = nn.ConvTranspose2d(o, o, f * 2, stride=f,
-                                    padding=f // 2, output_padding=0,
-                                    groups=o, bias=False)
-            fill_up_weights(up)
-
+        self.channels = channels
+        self.out_dim = out_dim
+        for i, c in enumerate(channels):
+            if c == out_dim:
+                proj = Identity()
+            else:
+                proj = nn.Sequential(
+                    nn.Conv2d(c, out_dim,
+                              kernel_size=1, stride=1, bias=False),
+                    nn.BatchNorm2d(out_dim),
+                    nn.ReLU(inplace=True))
+            f = int(up_factors[i])
+            if f == 1:
+                up = Identity()
+            else:
+                up = nn.ConvTranspose2d(
+                    out_dim, out_dim, f * 2, stride=f, padding=f // 2,
+                    output_padding=0, groups=out_dim, bias=False)
+                fill_up_weights(up)
             setattr(self, 'proj_' + str(i), proj)
             setattr(self, 'up_' + str(i), up)
+
+        for i in range(1, len(channels)):
+            node = nn.Sequential(
+                nn.Conv2d(out_dim * 2, out_dim,
+                          kernel_size=node_kernel, stride=1,
+                          padding=node_kernel // 2, bias=False),
+                nn.BatchNorm2d(out_dim),
+                nn.ReLU(inplace=True))
             setattr(self, 'node_' + str(i), node)
 
-    def forward(self, layers, startp=0, endp=None):
-        if not endp:
-            endp = len(layers)
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
+                m.weight.data.normal_(0, math.sqrt(2. / n))
+            elif isinstance(m, nn.BatchNorm2d):
+                m.weight.data.fill_(1)
+                m.bias.data.zero_()
 
-        for i in range(startp + 1, endp):
-            upsample = getattr(self, 'up_' + str(i - startp))
-            project = getattr(self, 'proj_' + str(i - startp))
-            layers[i] = upsample(project(layers[i]))
-            node = getattr(self, 'node_' + str(i - startp))
-            layers[i] = node(layers[i] + layers[i - 1])
-
-        return layers
+    def forward(self, layers):
+        assert len(self.channels) == len(layers), \
+            '{} vs {} layers'.format(len(self.channels), len(layers))
+        layers = list(layers)
+        for i, l in enumerate(layers):
+            upsample = getattr(self, 'up_' + str(i))
+            project = getattr(self, 'proj_' + str(i))
+            layers[i] = upsample(project(l))
+        x = layers[0]
+        y = []
+        for i in range(1, len(layers)):
+            node = getattr(self, 'node_' + str(i))
+            x = node(torch.cat([x, layers[i]], 1))
+            y.append(x)
+        return x, y
 
 
 class DLAUp(nn.Module):
-    def __init__(self, startp, channels, scales, in_channels=None):
+    def __init__(self, channels, scales=(1, 2, 4, 8, 16), in_channels=None):
         super(DLAUp, self).__init__()
-        self.startp = startp
         if in_channels is None:
             in_channels = channels
         self.channels = channels
@@ -84,18 +118,19 @@ class DLAUp(nn.Module):
         for i in range(len(channels) - 1):
             j = -i - 2
             setattr(self, 'ida_{}'.format(i),
-                    IDAUp(channels[j], in_channels[j:],
+                    IDAUp(3, channels[j], in_channels[j:],
                           scales[j:] // scales[j]))
             scales[j + 1:] = scales[j]
             in_channels[j + 1:] = [channels[j] for _ in channels[j + 1:]]
 
     def forward(self, layers):
-        out = [layers[-1]]  # start with 32
-        for i in range(len(layers) - self.startp - 1):
+        layers = list(layers)
+        assert len(layers) > 1
+        for i in range(len(layers) - 1):
             ida = getattr(self, 'ida_{}'.format(i))
-            layers = ida(layers, len(layers) - i - 2, len(layers))
-            out.insert(0, layers[-1])
-        return out
+            x, y = ida(layers[-i - 2:])
+            layers[-i - 1:] = y
+        return x
 
 
 class Head(nn.Module):
@@ -106,7 +141,7 @@ class Head(nn.Module):
 
         self.conv = conv2d(w_in, channels, 3)
         self.af = activation()
-        self.conv_fc = conv2d(channels, head_classes, 1)
+        self.conv_fc = conv2d(channels, head_classes, 2)
 
     def forward(self, x):
         x = self.af(self.conv(x))
