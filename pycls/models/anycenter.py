@@ -141,7 +141,7 @@ class Head(nn.Module):
 
         self.conv = conv2d(w_in, channels, 3)
         self.af = activation()
-        self.conv_fc = conv2d(channels, head_classes, 2)
+        self.conv_fc = conv2d(channels, head_classes, 1)
 
     def forward(self, x):
         x = self.af(self.conv(x))
