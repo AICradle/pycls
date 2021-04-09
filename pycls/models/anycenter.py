@@ -6,7 +6,7 @@ from pycls.models.blocks import (
     init_weights,
 )
 from pycls.models.anynet import get_block_fun, get_stem_fun, AnyStage
-# from .DCNv2.dcn_v2 import DCN
+from .DCNv2.dcn_v2 import DCN
 import torch.nn as nn
 import torch
 import numpy as np
@@ -36,23 +36,23 @@ def fill_up_weights(up):
         w[c, 0, :, :] = w[0, 0, :, :]
 
 
-# class DeformConv(nn.Module):
-#     def __init__(self, chi, cho):
-#         super(DeformConv, self).__init__()
-#         self.actf = nn.Sequential(
-#             nn.BatchNorm2d(cho, momentum=0.1),
-#             nn.ReLU(inplace=True)
-#         )
-#         self.conv = DCN(chi, cho, kernel_size=(3, 3), stride=1, padding=1, dilation=1, deformable_groups=1)
-#
-#     def forward(self, x):
-#         x = self.conv(x)
-#         x = self.actf(x)
-#         return x
+class DeformConv(nn.Module):
+    def __init__(self, chi, cho):
+        super(DeformConv, self).__init__()
+        self.actf = nn.Sequential(
+            nn.BatchNorm2d(cho, momentum=0.1),
+            nn.ReLU(inplace=True)
+        )
+        self.conv = DCN(chi, cho, kernel_size=(3, 3), stride=1, padding=1, dilation=1, deformable_groups=1)
+
+    def forward(self, x):
+        x = self.conv(x)
+        x = self.actf(x)
+        return x
 
 
 class IDAUp(nn.Module):
-    def __init__(self, node_kernel, out_dim, channels, up_factors):
+    def __init__(self, out_dim, channels, up_factors):
         super(IDAUp, self).__init__()
         self.channels = channels
         self.out_dim = out_dim
@@ -60,11 +60,7 @@ class IDAUp(nn.Module):
             if c == out_dim:
                 proj = Identity()
             else:
-                proj = nn.Sequential(
-                    nn.Conv2d(c, out_dim,
-                              kernel_size=1, stride=1, bias=False),
-                    nn.BatchNorm2d(out_dim),
-                    nn.ReLU(inplace=True))
+                proj = DeformConv(c, out_dim)
             f = int(up_factors[i])
             if f == 1:
                 up = Identity()
@@ -77,12 +73,7 @@ class IDAUp(nn.Module):
             setattr(self, 'up_' + str(i), up)
 
         for i in range(1, len(channels)):
-            node = nn.Sequential(
-                nn.Conv2d(out_dim * 2, out_dim,
-                          kernel_size=node_kernel, stride=1,
-                          padding=node_kernel // 2, bias=False),
-                nn.BatchNorm2d(out_dim),
-                nn.ReLU(inplace=True))
+            node = DeformConv(out_dim * 2, out_dim)
             setattr(self, 'node_' + str(i), node)
 
         for m in self.modules():
@@ -121,7 +112,7 @@ class DLAUp(nn.Module):
         for i in range(len(channels) - 1):
             j = -i - 2
             setattr(self, 'ida_{}'.format(i),
-                    IDAUp(3, channels[j], in_channels[j:],
+                    IDAUp(channels[j], in_channels[j:],
                           scales[j:] // scales[j]))
             scales[j + 1:] = scales[j]
             in_channels[j + 1:] = [channels[j] for _ in channels[j + 1:]]
@@ -186,7 +177,7 @@ class CenterHead(nn.Module):
         return cx
 
 class AnyCenter(nn.Module):
-    """AnyNet model."""
+    """AnyCenter model."""
 
     @staticmethod
     def get_params():
