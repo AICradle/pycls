@@ -7,16 +7,19 @@
 
 """Model and loss construction functions."""
 
-from pycls.core.config import cfg
-from pycls.core.net import SoftCrossEntropyLoss
-from pycls.models.anynet import AnyNet
-from pycls.models.effnet import EffNet
-from pycls.models.regnet import RegNet
-from pycls.models.resnet import ResNet
+from .config import cfg
+from .net import SoftCrossEntropyLoss
+# from ..models.anynet import AnyNet
+# from ..models.effnet import EffNet
+# from ..models.regnet import RegNet
+# from ..models.resnet import ResNet
+from ..models.regcenter import RegCenter
 
 
 # Supported models
-_models = {"anynet": AnyNet, "effnet": EffNet, "resnet": ResNet, "regnet": RegNet}
+# _models = {"anynet": AnyNet, "effnet": EffNet, "resnet": ResNet, "regnet": RegNet, "regcenter": RegCenter}
+_models = {"regcenter": RegCenter}
+
 
 # Supported loss functions
 _loss_funs = {"cross_entropy": SoftCrossEntropyLoss}

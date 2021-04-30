@@ -9,11 +9,11 @@
 
 import os
 
-import pycls.core.distributed as dist
+from .distributed import is_master_proc
 import torch
-from pycls.core.config import cfg
-from pycls.core.io import pathmgr
-from pycls.core.net import unwrap_model
+from .config import cfg
+from .io import pathmgr
+from .net import unwrap_model
 
 
 # Common prefix for checkpoint file names
@@ -58,7 +58,7 @@ def has_checkpoint():
 def save_checkpoint(model, optimizer, epoch, best):
     """Saves a checkpoint."""
     # Save checkpoints only from the master process
-    if not dist.is_master_proc():
+    if not is_master_proc():
         return
     # Ensure that the checkpoint dir exists
     pathmgr.mkdirs(get_checkpoint_dir())
@@ -85,7 +85,7 @@ def load_checkpoint(checkpoint_file, model, optimizer=None):
     assert pathmgr.exists(checkpoint_file), err_str.format(checkpoint_file)
     with pathmgr.open(checkpoint_file, "rb") as f:
         checkpoint = torch.load(f, map_location="cpu")
-    unwrap_model(model).load_state_dict(checkpoint["model_state"])
+    unwrap_model(model).load_state_dict(checkpoint["model_state"], strict=False)
     optimizer.load_state_dict(checkpoint["optimizer_state"]) if optimizer else ()
     return checkpoint["epoch"]
 
