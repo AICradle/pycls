@@ -6,14 +6,16 @@ from pycls.models.blocks import (
     init_weights,
 )
 from pycls.models.anynet import get_block_fun, get_stem_fun, AnyStage
-from .DCNv2.dcn_v2 import DCN
-import torch.nn as nn
-import torch
-import numpy as np
+import re
+# from .DCNv2.dcn_v2 import DCN
+
 import math
+import torch
+import torch.nn as nn
+
 
 from collections import namedtuple
-NT = namedtuple('output', ['hm', 'wh', 'reg'])
+CenterHeadTuple = namedtuple('output', ['hm', 'wh', 'reg'])
 
 
 class Identity(nn.Module):
@@ -36,19 +38,19 @@ def fill_up_weights(up):
         w[c, 0, :, :] = w[0, 0, :, :]
 
 
-class DeformConv(nn.Module):
-    def __init__(self, chi, cho):
-        super(DeformConv, self).__init__()
-        self.actf = nn.Sequential(
-            nn.BatchNorm2d(cho, momentum=0.1),
-            nn.ReLU(inplace=True)
-        )
-        self.conv = DCN(chi, cho, kernel_size=(3, 3), stride=1, padding=1, dilation=1, deformable_groups=1)
-
-    def forward(self, x):
-        x = self.conv(x)
-        x = self.actf(x)
-        return x
+# class DeformConv(nn.Module):
+#     def __init__(self, chi, cho):
+#         super(DeformConv, self).__init__()
+#         self.actf = nn.Sequential(
+#             nn.BatchNorm2d(cho, momentum=0.1),
+#             nn.ReLU(inplace=True)
+#         )
+#         self.conv = DCN(chi, cho, kernel_size=(3, 3), stride=1, padding=1, dilation=1, deformable_groups=1)
+#
+#     def forward(self, x):
+#         x = self.conv(x)
+#         x = self.actf(x)
+#         return x
 
 
 class IDAUp(nn.Module):
@@ -60,7 +62,12 @@ class IDAUp(nn.Module):
             if c == out_dim:
                 proj = Identity()
             else:
-                proj = DeformConv(c, out_dim)
+                # proj = DeformConv(out_dim * 2, out_dim)
+                proj = nn.Sequential(
+                    nn.Conv2d(c, out_dim,
+                              kernel_size=1, stride=1, bias=False),
+                    nn.BatchNorm2d(out_dim),
+                    nn.ReLU(inplace=True))
             f = int(up_factors[i])
             if f == 1:
                 up = Identity()
@@ -73,7 +80,13 @@ class IDAUp(nn.Module):
             setattr(self, 'up_' + str(i), up)
 
         for i in range(1, len(channels)):
-            node = DeformConv(out_dim * 2, out_dim)
+            # node = DeformConv(out_dim * 2, out_dim)
+            node = nn.Sequential(
+                nn.Conv2d(out_dim * 2, out_dim,
+                          kernel_size=3, stride=1,
+                          padding=3 // 2, bias=False),
+                nn.BatchNorm2d(out_dim),
+                nn.ReLU(inplace=True))
             setattr(self, 'node_' + str(i), node)
 
         for m in self.modules():
@@ -108,7 +121,7 @@ class DLAUp(nn.Module):
             in_channels = channels
         self.channels = channels
         channels = list(channels)
-        scales = np.array(scales, dtype=int)
+        scales = torch.tensor(scales, dtype=torch.int)
         for i in range(len(channels) - 1):
             j = -i - 2
             setattr(self, 'ida_{}'.format(i),
@@ -162,12 +175,11 @@ class CenterHead(nn.Module):
     def forward(self, x):
         y = {}
 
-
         for head, head_module in self.head_modules.items():
             y[head] = head_module(x)
 
-        nt = NT(y["hm"], y["wh"], y["reg"])
-        return nt
+        cth_tuple = CenterHeadTuple(y["hm"], y["wh"], y["reg"])
+        return cth_tuple
 
     @staticmethod
     def complexity(cx, w_in, heads):
@@ -175,6 +187,105 @@ class CenterHead(nn.Module):
             cx = Head.complexity(cx, w_in, 256, head_classes)
 
         return cx
+
+class CenterDecode(nn.Module):
+    def __init__(self):
+        super(CenterDecode, self).__init__()
+
+    def forward(self, cth_tuple: CenterHeadTuple):
+        hm = cth_tuple[0].sigmoid()
+        wh = cth_tuple[1]
+        reg = cth_tuple[2]
+        dets = self._decode(hm, wh, reg, K=100)
+
+        return dets
+
+    def _decode(self, hm: torch.Tensor, wh: torch.Tensor, reg: torch.Tensor, K: int):
+        batch, cat, height, width = hm.size()
+
+        hm = self._nms(hm)
+
+        scores, inds, clses, ys, xs = self._topk(hm, K=K)
+        reg = self._compress_tensor(reg)
+        reg_x = torch.narrow(reg, 2, 0, 1)
+        reg_y = torch.narrow(reg, 2, 1, 1)
+
+        reg_x = self._gather_feat(reg_x, inds)
+        reg_y = self._gather_feat(reg_y, inds)
+
+        xs = xs.view(batch, K, 1)
+        ys = ys.view(batch, K, 1)
+
+        xs = xs.type(torch.float32)
+        ys = ys.type(torch.float32)
+        xs = xs + reg_x
+        ys = ys + reg_y
+
+        wh = self._compress_tensor(wh)
+        wh_x = torch.narrow(wh, 2, 0, 1)
+        wh_y = torch.narrow(wh, 2, 1, 1)
+
+        wh_x = self._gather_feat(wh_x, inds)
+        wh_y = self._gather_feat(wh_y, inds)
+
+        clses = clses.view(batch, K, 1).type(torch.float32)
+        scores = scores.view(batch, K, 1)
+        wh_x = wh_x / 2
+        wh_y = wh_y / 2
+
+        bboxes = torch.cat([xs - wh_x,
+                            ys - wh_y,
+                            xs + wh_x,
+                            ys + wh_y], dim=2)
+        detections = torch.cat([bboxes, scores, clses], dim=2)
+
+        return detections
+
+    def _nms(self, hm: torch.Tensor, kernel=3):
+        pad = (kernel - 1) // 2
+
+        hmax = nn.functional.max_pool2d(
+            hm, (kernel, kernel), stride=1, padding=pad)
+        keep = (hmax == hm).type(torch.float32)
+        return hm * keep
+
+    def _topk(self, scores: torch.Tensor, K: int):
+        batch, cat, height, width = scores.size()
+
+        scores = scores.view(batch, cat, -1)
+        topk_scores, topk_inds = torch.topk(scores, K)
+
+        topk_inds = topk_inds % (height * width)
+
+        topk_ys = (topk_inds / width)
+        topk_xs = (topk_inds % width)
+
+        topk_scores = topk_scores.view(batch, -1)
+        topk_score, topk_ind = torch.topk(topk_scores, K)
+
+        topk_clses = (topk_ind / K)
+        topk_inds = topk_inds.view(batch, -1, 1)
+        topk_inds = self._gather_feat(topk_inds, topk_ind)
+        topk_inds = topk_inds.view(batch, K)
+
+        topk_ys = topk_ys.view(batch, -1, 1)
+        topk_xs = topk_xs.view(batch, -1, 1)
+        topk_ys = self._gather_feat(topk_ys, topk_ind).view(batch, K)
+        topk_xs = self._gather_feat(topk_xs, topk_ind).view(batch, K)
+
+        return topk_score, topk_inds, topk_clses, topk_ys, topk_xs
+
+    def _gather_feat(self, feat, ind):
+        ind = ind.unsqueeze(2)
+        feat = feat.gather(1, ind)
+
+        return feat
+
+    def _compress_tensor(self, feat):
+        feat = feat.permute(0, 2, 3, 1).contiguous()
+        feat = feat.view(feat.size(0), -1, feat.size(3))
+        return feat
+
 
 class AnyCenter(nn.Module):
     """AnyCenter model."""
@@ -209,7 +320,7 @@ class AnyCenter(nn.Module):
             params = {"bot_mul": b, "group_w": g, "se_r": p["se_r"]}
             stage = AnyStage(prev_w, w, s, d, block_fun, params)
             channels.append(w)
-            self.add_module("stage{}".format(i + 1), stage)
+            self.add_module("s{}".format(i + 1), stage)
             prev_w = w
 
 
@@ -217,10 +328,11 @@ class AnyCenter(nn.Module):
         self.dla_up = DLAUp(channels, scales)
 
         self.head = CenterHead(channels[-1], p["heads"])
+        self.decode = CenterDecode()
         self.apply(init_weights)
 
     def forward(self, x):
-        stages = [module for name, module in self.named_children() if "stage" in name]
+        stages = [module for name, module in self.named_children() if re.match("s\d", name)]
         y = []
 
         x = self.stem(x)
@@ -230,6 +342,7 @@ class AnyCenter(nn.Module):
 
         x = self.dla_up(y)
         x = self.head(x)
+        x = self.decode(x)
 
         return x
 

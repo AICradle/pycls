@@ -153,7 +153,7 @@ def build_model(name, pretrained=False, cfg_list=()):
     return model
 
 
-def build_regcenter_model(config_path, pretrained=False, cfg_list=()):
+def build_regcenter_model(config_path, pretrained=False, weights_file=None, cfg_list=()):
     """Constructs a predefined model (note: loads global config as well)."""
     # Load the config
     reset_cfg()
@@ -162,15 +162,15 @@ def build_regcenter_model(config_path, pretrained=False, cfg_list=()):
     # Construct model
     model = builders.build_model()
     # Load pretrained weights
-    # if pretrained:
-    #     weights_file = get_weights_file(name)
-    #     cp.load_checkpoint(weights_file, model)
+    if pretrained and weights_file:
+        cp.load_checkpoint(weights_file, model)
     return model
 
 
-def regcenter(config_path, pretrained=False, cfg_list=()):
+def regcenter(config_path, pretrained=False, weights_file=None, cfg_list=()):
     """Constructs a RegNetX model (note: loads global config as well)."""
-    return build_regcenter_model(config_path, pretrained, cfg_list)
+    return build_regcenter_model(config_path, pretrained, weights_file, cfg_list)
+
 
 def regnetx(name, pretrained=False, cfg_list=()):
     """Constructs a RegNetX model (note: loads global config as well)."""
